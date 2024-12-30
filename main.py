@@ -18,120 +18,145 @@ class ExerciseDetector:
         # Mapeo de ejercicios a funciones
         self.exercise_functions = {
             "SQUAT": self.detect_squats,
-            "PUSH-UP": self.detect_push_up
+            "PUSH-UP": self.detect_push_up,
+            "PULL-UP": self.detect_pull_up,
+            "BICEPS": self.detect_biceps,
+            "CRUNCHES": self.detect_crunches
         }
         # Generamos la lista de ejercicios
         self.list_exercises = list(self.exercise_functions.keys())
         # Asignamos el ejercicio por default
         self.current_exercise = self.list_exercises[0]
 
-    # Esta funcion perimite calcular el angulo entre tres puntos
+    # Esta funcion perimite calcular el angulos de una lista de tres puntos en R2
     @staticmethod
-    def calculate_angle(a,b,c):
-        a = np.array(a) 
-        b = np.array(b)  
-        c = np.array(c)  
-
+    def calculate_angle(positions):
+        # Desempaquetar las posiciones de la tupla
+        a, b, c = positions
+        
+        # Convertir las posiciones en arrays de NumPy
+        a = np.array(a)
+        b = np.array(b)
+        c = np.array(c)
+        
+        # Calcular el ángulo
         radians = np.arctan2(c[1] - b[1], c[0] - b[0]) - np.arctan2(a[1] - b[1], a[0] - b[0])
         angle = np.abs(radians * 180.0 / np.pi)
-
+        
+        # Asegurarse de que el ángulo esté entre 0 y 180 grados
         if angle > 180.0:
             angle = 360.0 - angle
 
         return int(angle)
     
-    def detect_squats(self, landmarks, width, height):
-        # Extraemos las coordenadas de interes para las sentadillas
-        left_hip = (int(landmarks[self.mp_pose.PoseLandmark.LEFT_HIP.value].x * width),
-                    int(landmarks[self.mp_pose.PoseLandmark.LEFT_HIP.value].y * height))
-        left_knee = (int(landmarks[self.mp_pose.PoseLandmark.LEFT_KNEE.value].x * width),
-                     int(landmarks[self.mp_pose.PoseLandmark.LEFT_KNEE.value].y * height))
-        left_ankle = (int(landmarks[self.mp_pose.PoseLandmark.LEFT_ANKLE.value].x * width),
-                      int(landmarks[self.mp_pose.PoseLandmark.LEFT_ANKLE.value].y * height))
-        right_hip = (int(landmarks[self.mp_pose.PoseLandmark.RIGHT_HIP.value].x * width),
-                     int(landmarks[self.mp_pose.PoseLandmark.RIGHT_HIP.value].y * height))
-        right_knee = (int(landmarks[self.mp_pose.PoseLandmark.RIGHT_KNEE.value].x * width),
-                      int(landmarks[self.mp_pose.PoseLandmark.RIGHT_KNEE.value].y * height))
-        right_ankle = (int(landmarks[self.mp_pose.PoseLandmark.RIGHT_ANKLE.value].x * width),
-                       int(landmarks[self.mp_pose.PoseLandmark.RIGHT_ANKLE.value].y * height))
-        
-        # Logica para el conteo de sentadillas
-        angle_left = self.calculate_angle(left_hip, left_knee, left_ankle)
-        angle_right = self.calculate_angle(right_hip, right_knee, right_ankle)
+    def get_angles(self, frame, landmarks, width, height, *indexes_list):
+        angles = []
+        for indexes in indexes_list:
+            not_visible_landmarks = [landmarks[i].visibility < 0.6 for i in indexes]
+            if any(not_visible_landmarks):
+                continue
+            # Extraemos las coordenadas de interes
+            points = [
+                [int(point.x * width), int(point.y * height)]
+                for point in [landmarks[i] for i in indexes]
+            ]
+            # Dibujamos los puntos y las lineas de union
+            for i, point in enumerate(points):
+                if i != 0:
+                    cv2.line(frame, points[i-1], points[i], (255,255,255), 2)
+                cv2.circle(frame, point, 5, (255,0,0), 3)
 
-        if self.is_down and any(angle > 100 for angle in (angle_left, angle_right)):
+            # Calculamos el angulo que forma cada lista de posiciones
+            # y los guardamos en la lista de angulos
+            angles.append(self.calculate_angle(points))
+        # print(angles)
+        return angles
+    
+    def detect_squats(self, frame, landmarks, width, height):
+        # Extraemos las angulos de interes para las sentadillas
+        angles = self.get_angles(frame, landmarks, width, height, [23, 25, 27], [24, 26, 28])
+        # Logica para el conteo de sentadillas
+        if self.is_down and any(angle > 150 for angle in angles):
             self.is_down = False
             self.reps += 1
-        elif not self.is_down and any(angle < 40 for angle in (angle_left, angle_right)):
+        elif not self.is_down and any(angle < 90 for angle in angles):
             self.is_down = True
     
-    def detect_push_up(self, landmarks, width, height):
-        # Extraemos las coordenadas de interes para las lagartijas
-        left_shoulder = (int(landmarks[self.mp_pose.PoseLandmark.LEFT_SHOULDER.value].x * width),
-                         int(landmarks[self.mp_pose.PoseLandmark.LEFT_SHOULDER.value].y * height))
-        left_elbow = (int(landmarks[self.mp_pose.PoseLandmark.LEFT_ELBOW.value].x * width),
-                      int(landmarks[self.mp_pose.PoseLandmark.LEFT_ELBOW.value].y * height))
-        left_wrist = (int(landmarks[self.mp_pose.PoseLandmark.LEFT_WRIST.value].x * width),
-                      int(landmarks[self.mp_pose.PoseLandmark.LEFT_WRIST.value].y * height))
-        right_shoulder = (int(landmarks[self.mp_pose.PoseLandmark.RIGHT_SHOULDER.value].x * width),
-                          int(landmarks[self.mp_pose.PoseLandmark.RIGHT_SHOULDER.value].y * height))
-        right_elbow = (int(landmarks[self.mp_pose.PoseLandmark.RIGHT_ELBOW.value].x * width),
-                       int(landmarks[self.mp_pose.PoseLandmark.RIGHT_ELBOW.value].y * height))
-        right_wrist = (int(landmarks[self.mp_pose.PoseLandmark.RIGHT_WRIST.value].x * width),
-                       int(landmarks[self.mp_pose.PoseLandmark.RIGHT_WRIST.value].y * height))
+    def detect_push_up(self, frame, landmarks, width, height):
+        # Extraemos las angulos de interes para las lagartijas
+        angles = self.get_angles(frame, landmarks, width, height, [11, 13, 15], [12, 14, 16])
 
-        # Logica para el conteo de sentadillas
-        angle_left = self.calculate_angle(left_shoulder, left_elbow, left_wrist)
-        angle_right = self.calculate_angle(right_shoulder, right_elbow, right_wrist)
-        print(angle_left)
-        if self.is_down and any(angle > 160 for angle in (angle_left, angle_right)):
+        # Logica para el conteo de lajartijas
+        if self.is_down and any(angle > 150 for angle in angles):
             self.is_down = False
             self.reps += 1
-        elif not self.is_down and any(angle < 90 for angle in (angle_left, angle_right)):
+        elif not self.is_down and any(angle < 90 for angle in angles):
             self.is_down = True
-            
-    def draw(self):
-        # cv2.line(img, point1, point2, color, thinkless)
-        # Dibujamos circulos en los puntos de articulacion
-        # cv2.circle(image, center_coordinates, radius, color, thickness)
-        pass
+    
+    def detect_pull_up(self, frame, landmarks, width, height):
+        # Extraemos las angulos de interes para las dominadas
+        angles = self.get_angles(frame, landmarks, width, height, [11, 13, 15], [12, 14, 16])
+
+        # Logica para el conteo de lajartijas
+        if self.is_down and any(angle > 140 for angle in angles):
+            self.is_down = False
+            self.reps += 1
+        elif not self.is_down and any(angle < 40 for angle in angles):
+            self.is_down = True
+    
+    def detect_biceps(self, frame, landmarks, width, height):
+        # Extraemos las angulos de interes para los biceps
+        angles = self.get_angles(frame, landmarks, width, height, [11, 13, 15], [12, 14, 16])
+
+        # Logica para el conteo de lajartijas
+        if self.is_down and any(angle > 140 for angle in angles):
+            self.is_down = False
+            self.reps += 1
+        elif not self.is_down and any(angle < 35 for angle in angles):
+            self.is_down = True
+
+    def detect_crunches(self, frame, landmarks, width, height):
+        # Extraemos las angulos de interes para las abdominales
+        angles = self.get_angles(frame, landmarks, width, height, [11, 23, 25], [12, 24, 26])
+
+        # Logica para el conteo de lajartijas
+        if self.is_down and any(angle > 100 for angle in angles):
+            self.is_down = False
+            self.reps += 1
+        elif not self.is_down and any(angle < 50 for angle in angles):
+            self.is_down = True
 
     def write_info(self, frame):
         # Obtenemos dimensiones de la imagen
         height, width, _ = frame.shape
-
         # Dibujamos recuadros
-        cv2.rectangle(frame, (0,0), (280,70), (28,10,0), -1)
+        cv2.rectangle(frame, (0,0), (300,70), (28,10,0), -1)
         cv2.rectangle(frame, (0,height-30), (width,height), (28,10,0), -1)
         # Escribimos texto
-        cv2.putText(frame, f"Exercise: {self.current_exercise}", (10,30), cv2.FONT_HERSHEY_SIMPLEX, 1, (221,179,144), 2, cv2.LINE_AA)
+        cv2.putText(frame, f"Mode: {self.current_exercise}", (10,30), cv2.FONT_HERSHEY_SIMPLEX, 1, (221,179,144), 2, cv2.LINE_AA)
         cv2.putText(frame, f"Reps: {self.reps}", (10,60), cv2.FONT_HERSHEY_SIMPLEX , 1, (221,179,144), 2, cv2.LINE_AA)
-        cv2.putText(frame, "[1]SQUAT [2]PUSH-UP [3]BICEPS", (10, height-10), cv2.FONT_HERSHEY_PLAIN, 1, (255,255,255), 1, cv2.LINE_AA)
+        cv2.putText(frame, "[1]SQUAT [2]PUSH-UP [3]PULL-UP [4]BICEPS [5]CRUNCH", (10, height-10), cv2.FONT_HERSHEY_PLAIN, 1, (255,255,255), 1, cv2.LINE_AA)
 
     def process_frame(self, frame):
         # Obtenemos dimensiones de la imagen
         height, width, _ = frame.shape
-
         # Cambiamos el espacio de color de BGR a RBG porque mediapipe solo trabaja con RGB
         frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-
         # Procesamos la imagen
         results = self.pose.process(frame_rgb)
 
         if results.pose_landmarks:
             landmarks = results.pose_landmarks.landmark
-            self.exercise_functions[self.current_exercise](landmarks, width, height)
+            self.exercise_functions[self.current_exercise](frame, landmarks, width, height)
             self.write_info(frame)
         
-         # Dibuja puntos clave en la imagen
-        self.mp_drawing.draw_landmarks(frame, results.pose_landmarks, self.mp_pose.POSE_CONNECTIONS)
-
+        # Dibuja puntos clave en la imagen
+        # self.mp_drawing.draw_landmarks(frame, results.pose_landmarks, self.mp_pose.POSE_CONNECTIONS)
         return frame
     
     def change_exercise(self, new_exercise_index):
         self.current_exercise = self.list_exercises[new_exercise_index]
         self.reps = 0
-
 
 class VideoProcessor:
     def __init__(self, source=0):
@@ -152,11 +177,8 @@ class VideoProcessor:
         else:
             return None
         
-        # Nuevo tamaño de la imagen
-        new_size = (new_height, new_width)
-
         # Retornamos la nueva imagen redimensionada
-        return cv2.resize(image, new_size, cv2.INTER_AREA)
+        return cv2.resize(image, (new_height, new_width), cv2.INTER_AREA)
     
     def run(self):
         while True:
@@ -166,14 +188,13 @@ class VideoProcessor:
                 break
 
             # Redimensionamos la imagen
-            frame = self.resize_image(frame, new_width=300)
+            frame = self.resize_image(frame, new_width=480)
             if self.source == 0:
                 frame = cv2.flip(frame, 1)
 
             # Procesamos la imagen
             frame = self.detector.process_frame(frame)
-
-            # Visualizacion
+            # Visualizamos la image procesada
             cv2.imshow("Computer Vision Trainer", frame)
 
             # Menu de teclas
@@ -181,10 +202,16 @@ class VideoProcessor:
             if key == 27:  # Salir con ESC
                 break   
             elif key == ord('1'):
-                self.detector.change_exercise(0)
+                self.detector.change_exercise(0)    # SQUAT
             elif key == ord('2'):
-                self.detector.change_exercise(1)
-            
+                self.detector.change_exercise(1)    # PUSH-UP
+            elif key == ord('3'):
+                self.detector.change_exercise(2)    # PULL-UP
+            elif key == ord('4'):
+                self.detector.change_exercise(3)    # BICEPS
+            elif key == ord('5'):
+                self.detector.change_exercise(4)    # CRUNCH
+
         # Liberamos todos los recursos
         self.cap.release()
         cv2.destroyAllWindows()
@@ -192,7 +219,6 @@ class VideoProcessor:
 
 # Iniciamos el procesamiento del video
 if __name__ == "__main__":
-    app = VideoProcessor(source="videos/push_up.mp4")
+    app = VideoProcessor(source="videos/crunches/1.mp4")
     # app = VideoProcessor(source=0)
-    # app = VideoProcessor(source="videos/examples/blanche.ts")
     app.run()
